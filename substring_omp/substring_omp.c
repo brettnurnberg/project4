@@ -7,14 +7,17 @@
 #include <string.h>
 #include <sys/time.h>
 
+/* literal constants */
 #define LINEMAX 4096
 #define CHUNK   20
 
-void printLCSubStr(char* X, char* Y, int m, int n, uint32_t idx);
+/* function declarations */
+void printLCSubStr(char* x, char* y, int m, int n, uint32_t idx);
 uint32_t stoint(char* string);
 int getNextLines(char** x, uint32_t* idx);
 void findSubStrs(void);
 
+/* global variables */
 FILE *fp;
 uint32_t curr_line_idx;
 char prev_line[LINEMAX];
@@ -23,52 +26,74 @@ uint32_t line_count;
 /* Program entry point */
 int main(int argc, char **argv)
 {
+  /* get command line arguments */
   fp = fopen(argv[1], "r");
   line_count = stoint(argv[2]);
-  uint32_t numThreads = stoint(argv[3]);
   
-  double elapsedTime;
-  struct timeval t1, t2;
-  int i;
+  /* local variables */
+  int numThreads = 1;         /* number of threads */
+  int numNodes;               /* number of nodes */
+  int numTasks;               /* number of tasks */
+  double elapsedTime;         /* program run time */
+  struct timeval t1, t2;      /* program start/end times */
+  int i;                      /* loop counter */
   
-  gettimeofday(&t1, NULL);
+  /* get number of nodes and tasks per node */
+  numNodes = stoint(getenv("SLURM_JOB_NUM_NODES"));
+  numTasks = stoint(getenv("SLURM_CPUS_ON_NODE"));
+  
+  /* set number of threads */
+  if(numNodes && numTasks)
+  {
+    numThreads = numNodes * numTasks;
+  }
   
   omp_set_num_threads(numThreads);
   
-  assert(fp != NULL);
-  assert(line_count > 1);
+  /* start timer and print start message */
+  gettimeofday(&t1, NULL);
+  printf("DEBUG: starting job on %s with %s nodes and %s tasks per node\n",
+         getenv("HOSTNAME"),
+         getenv("SLURM_JOB_NUM_NODES"),
+         getenv("SLURM_CPUS_ON_NODE"));
   
-  printf("DEBUG: starting job on %s\n", getenv("HOSTNAME"));
-  
+  /* get first line of text */
   curr_line_idx = 1;
   fgets(prev_line, LINEMAX, fp);
   
-  /* parallelized section */
+  /* parallelized code to find substrings */
   #pragma omp parallel
   {
     findSubStrs();
   }
   
+  /* close file */
   fclose(fp);
   
+  /* stop timer and calculate run time */
   gettimeofday(&t2, NULL);
-  
   elapsedTime = (t2.tv_sec - t1.tv_sec) * 1000.0;
   elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;
   
-  printf("DATA, %s, %s, %s, %d, %f\n", getenv("SLURM_NNODES"),
-                                       getenv("SLURM_NPROCS"),
-                                       getenv("SLURM_NTASKS"),
-                                       line_count,
-                                       elapsedTime);
+  /* print final run data */
+  printf("DATA, %s, %s, %d, %f\n", getenv("SLURM_JOB_NUM_NODES"),
+                                   getenv("SLURM_CPUS_ON_NODE"),
+                                   line_count,
+                                   elapsedTime);
   
   return 0;
 }
 
+/* converts a string to an integer */
 uint32_t stoint(char* string)
 {
   uint32_t val = 0;
   int i = 0;
+  
+  if(string == NULL)
+  {
+    return 0;
+  }
   
   while (string[i] != '\0')
   {
@@ -79,6 +104,7 @@ uint32_t stoint(char* string)
   return val;
 }
 
+/* finds all substrings in a file */
 void findSubStrs(void)
 {
   char* x[CHUNK+1];
@@ -116,17 +142,19 @@ void findSubStrs(void)
       free(x[i]);
     }
   }
-  
 }
 
+/* gets next chunk of lines to evaluate */
 int getNextLines(char** x, uint32_t* idx)
 {
   int count = 0;
   int i;
   *idx = curr_line_idx;
   
+  /* save the previous line for comparison */
   memcpy(x[0], prev_line, strlen(prev_line)+1);
   
+  /* read the next chunk of lines, or until EOF */
   for(i = 0; i < CHUNK; i++)
   {
     if((fgets(x[i+1], LINEMAX, fp) == NULL)
@@ -141,50 +169,53 @@ int getNextLines(char** x, uint32_t* idx)
     }
   }
   
+  /* save the last line for future use */
   if(count)
   {
     memcpy(prev_line, x[count], strlen(x[count]) + 1);
   }
   
+  /* return number of new lines read */
   return count;
 }
 
-/* function to find and print the longest common 
-   substring of X[0..m-1] and Y[0..n-1] */
-void printLCSubStr(char* X, char* Y, int m, int n, uint32_t idx)
+/* finds and prints the longest common substring of x and y */
+void printLCSubStr(char* x, char* y, int m, int n, uint32_t idx)
 {
+  uint16_t i, j;      /* loop counters */
+  uint16_t len = 0;   /* length of the longest common substring */
+  uint16_t row, col;  /* index of cell which contains the maximum value */
+  
   /* lengths of longest common suffixes of substrings */
-  uint16_t LCSuff[m + 1][n + 1];
+  uint16_t** com_suff = (uint16_t**)malloc((m + 1) * sizeof(uint16_t *));
+  
+  for (i = 0; i < (m + 1); i++)
+  {
+    com_suff[i] = (uint16_t*)malloc((n + 1) * sizeof(uint16_t));
+  }
 
-  /* length of the longest common substring */
-  uint16_t len = 0;
-
-  /* index of cell which contains the maximum value */
-  uint16_t row, col;
-  uint16_t i, j;
-
-  /* Build LCSuff[m+1][n+1] in bottom up fashion. */
+  /* Build com_suff[m+1][n+1] in bottom up fashion. */
   for (i = 0; i <= m; i++)
   {
     for (j = 0; j <= n; j++)
     {
       if (i == 0 || j == 0)
       {
-        LCSuff[i][j] = 0;
+        com_suff[i][j] = 0;
       }
-      else if (X[i - 1] == Y[j - 1])
+      else if (x[i - 1] == y[j - 1])
       {
-        LCSuff[i][j] = LCSuff[i - 1][j - 1] + 1;
-        if (len < LCSuff[i][j])
+        com_suff[i][j] = com_suff[i - 1][j - 1] + 1;
+        if (len < com_suff[i][j])
         {
-          len = LCSuff[i][j];
+          len = com_suff[i][j];
           row = i;
           col = j;
         }
       }
       else
       {
-        LCSuff[i][j] = 0;
+        com_suff[i][j] = 0;
       }
     }
   }
@@ -192,7 +223,7 @@ void printLCSubStr(char* X, char* Y, int m, int n, uint32_t idx)
   /* no common substring exists */
   if (len == 0)
   {
-    printf("STRING,\n");
+    printf("\n");
     return;
   }
 
@@ -200,11 +231,10 @@ void printLCSubStr(char* X, char* Y, int m, int n, uint32_t idx)
   char* resultStr = (char*)malloc((len + 1) * sizeof(char));
   resultStr[len] = '\0';
 
-  /* traverse up diagonally form the (row, col) cell
-  until LCSuff[row][col] != 0 */
-  while (LCSuff[row][col] != 0)
+  /* traverse up diagonally from the (row, col) cell */
+  while (com_suff[row][col] != 0)
   {
-    resultStr[--len] = X[row - 1]; // or Y[col-1]
+    resultStr[--len] = x[row - 1];
 
     /* move diagonally up to previous cell */
     row--;
@@ -212,6 +242,13 @@ void printLCSubStr(char* X, char* Y, int m, int n, uint32_t idx)
   }
 
   /* print longest common substring */
-  printf("STRING %u-%u: %s\n", idx, idx+1, resultStr);
+  printf("%u-%u: %s\n", idx, idx+1, resultStr);
   free(resultStr);
+  
+  for (i = 0; i < (m + 1); i++)
+  {
+    free(com_suff[i]);
+  }
+  free(com_suff);
+  
 }
