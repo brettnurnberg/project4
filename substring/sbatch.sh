@@ -7,6 +7,6 @@
 #SBATCH --ntasks-per-node=1
 
 #SBATCH --output=substring.out
-#SBATCH --constraint=dwarf
+#SBATCH --constraint=dwarves
 
 /homes/brettnurnberg/project4/substring/substring /homes/dan/625/wiki_dump.txt 1000
