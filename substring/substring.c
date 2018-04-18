@@ -6,8 +6,8 @@
 #include <string.h>
 #include <sys/time.h>
 
-#define LINEMAX 8192
-#define CHUNK   50
+#define LINEMAX 4096
+#define CHUNK   20
 
 void printLCSubStr(char* X, char* Y, int m, int n, uint32_t idx);
 uint32_t stoint(char* string);
