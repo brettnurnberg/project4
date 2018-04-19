@@ -8,67 +8,102 @@
 #include <sys/time.h>
 
 /* literal constants */
-#define LINEMAX 4096
-#define CHUNK   20
+#define LINEMAX   2048
 
 /* function declarations */
-void printLCSubStr(char* x, char* y, int m, int n, uint32_t idx);
+void getSubStr(char* x, char* y, int m, int n, char** out);
 uint32_t stoint(char* string);
 int getNextLines(char** x, uint32_t* idx);
-void findSubStrs(void);
+void findSubStrs(int id);
 
 /* global variables */
-FILE *fp;
-uint32_t curr_line_idx;
-char prev_line[LINEMAX];
 uint32_t line_count;
+char** lines;
+char** sub_strs;
+int numThreads;
 
 /* Program entry point */
 int main(int argc, char **argv)
 {
   /* get command line arguments */
-  fp = fopen(argv[1], "r");
+  FILE* fp = fopen(argv[1], "r");
   line_count = stoint(argv[2]);
   
   /* local variables */
-  int numThreads = 1;         /* number of threads */
   int numNodes;               /* number of nodes */
   int numTasks;               /* number of tasks */
   double elapsedTime;         /* program run time */
   struct timeval t1, t2;      /* program start/end times */
   int i;                      /* loop counter */
-  
+
   /* get number of nodes and tasks per node */
   numNodes = stoint(getenv("SLURM_JOB_NUM_NODES"));
   numTasks = stoint(getenv("SLURM_CPUS_ON_NODE"));
-  
+
   /* set number of threads */
   if(numNodes && numTasks)
   {
     numThreads = numNodes * numTasks;
   }
+  else
+  {
+    numThreads = 1;
+  }
   
   omp_set_num_threads(numThreads);
-  
+
   /* start timer and print start message */
   gettimeofday(&t1, NULL);
   printf("DEBUG: starting job on %s with %s nodes and %s tasks per node\n",
          getenv("HOSTNAME"),
          getenv("SLURM_JOB_NUM_NODES"),
          getenv("SLURM_CPUS_ON_NODE"));
-  
-  /* get first line of text */
-  curr_line_idx = 1;
-  fgets(prev_line, LINEMAX, fp);
-  
-  /* parallelized code to find substrings */
-  #pragma omp parallel
+
+  /* allocate and read in all lines */
+  lines = (char**)malloc(line_count * sizeof(char*));
+  i = 0;
+  lines[0] = (char*)malloc(LINEMAX * sizeof(char));
+  while(fgets(lines[i], LINEMAX, fp) != NULL && i < line_count)
   {
-    findSubStrs();
+    i++;
+    lines[i] = (char*)malloc(LINEMAX * sizeof(char));
   }
   
   /* close file */
   fclose(fp);
+  
+  if(i < line_count)
+  {
+    line_count = i;
+  }
+
+  /* allocate substring storage */
+  sub_strs = (char**)malloc(line_count * sizeof(char*));
+  for(i = 0; i < line_count; i++)
+  {
+    sub_strs[i] = NULL;
+  }
+  
+  /* parallelized code to find substrings */
+  #pragma omp parallel
+  {
+    findSubStrs(omp_get_thread_num());
+  }
+
+  /* print and free substrings */
+  for(i = 0; i < line_count-1; i++)
+  {
+    printf("%u-%u: %s\n", i+1, i+2, sub_strs[i]);
+    free(sub_strs[i]);
+  }
+  free(sub_strs);
+  
+  /* free lines */
+  for(i = 0; i < line_count; i++)
+  {
+    free(lines[i]);
+  }
+  free(lines);
   
   /* stop timer and calculate run time */
   gettimeofday(&t2, NULL);
@@ -80,7 +115,7 @@ int main(int argc, char **argv)
                                    getenv("SLURM_CPUS_ON_NODE"),
                                    line_count,
                                    elapsedTime);
-  
+
   return 0;
 }
 
@@ -105,82 +140,38 @@ uint32_t stoint(char* string)
 }
 
 /* finds all substrings in a file */
-void findSubStrs(void)
+void findSubStrs(int id)
 {
-  char* x[CHUNK+1];
-  int count;
-  uint32_t line_idx;
-  int i;
-  
-  #pragma omp private(x,count,line_idx,i)
-  {
-    for(i = 0; i < CHUNK+1; i++)
-    {
-      x[i] = (char*)malloc(LINEMAX);
-    }
-    
-    #pragma omp critical
-    {
-      count = getNextLines(x, &line_idx);
-    }
-    
-    while(count)
-    {
-      for(i = 0; i < count; i++)
-      {
-        printLCSubStr(x[i], x[i+1], strlen(x[i]), strlen(x[i+1]), line_idx+i);
-      }
-      
-      #pragma omp critical
-      {
-        count = getNextLines(x, &line_idx);
-      }
-    }
-    
-    for(i = 0; i < CHUNK+1; i++)
-    {
-      free(x[i]);
-    }
-  }
-}
+  uint32_t start_pos;
+  uint32_t end_pos;
+  uint32_t interval;
+  uint32_t i;
 
-/* gets next chunk of lines to evaluate */
-int getNextLines(char** x, uint32_t* idx)
-{
-  int count = 0;
-  int i;
-  *idx = curr_line_idx;
-  
-  /* save the previous line for comparison */
-  memcpy(x[0], prev_line, strlen(prev_line)+1);
-  
-  /* read the next chunk of lines, or until EOF */
-  for(i = 0; i < CHUNK; i++)
+  #pragma omp private(id,start_pos,end_pos,interval,i)
   {
-    if((fgets(x[i+1], LINEMAX, fp) == NULL)
-    || (curr_line_idx > line_count))
+    interval = line_count / numThreads;
+    if(line_count % numThreads)
     {
-      break;
+      interval++;
     }
-    else
+    
+    start_pos = id * interval;
+    end_pos = (id + 1) * interval;
+    
+    if(end_pos >= line_count)
     {
-      count++;
-      curr_line_idx++;
+      end_pos = line_count;
+    }
+    
+    for(i = start_pos; i < end_pos; i++)
+    {
+      getSubStr(lines[i], lines[i+1], strlen(lines[i]), strlen(lines[i+1]), &sub_strs[i]);
     }
   }
-  
-  /* save the last line for future use */
-  if(count)
-  {
-    memcpy(prev_line, x[count], strlen(x[count]) + 1);
-  }
-  
-  /* return number of new lines read */
-  return count;
 }
 
 /* finds and prints the longest common substring of x and y */
-void printLCSubStr(char* x, char* y, int m, int n, uint32_t idx)
+void getSubStr(char* x, char* y, int m, int n, char** out)
 {
   uint16_t i, j;      /* loop counters */
   uint16_t len = 0;   /* length of the longest common substring */
@@ -223,7 +214,6 @@ void printLCSubStr(char* x, char* y, int m, int n, uint32_t idx)
   /* no common substring exists */
   if (len == 0)
   {
-    printf("\n");
     return;
   }
 
@@ -241,9 +231,8 @@ void printLCSubStr(char* x, char* y, int m, int n, uint32_t idx)
     col--;
   }
 
-  /* print longest common substring */
-  printf("%u-%u: %s\n", idx, idx+1, resultStr);
-  free(resultStr);
+  /* save longest common substring */
+  *out = resultStr;
   
   for (i = 0; i < (m + 1); i++)
   {
