@@ -13,7 +13,6 @@
 /* function declarations */
 void getSubStr(char* x, char* y, int m, int n, char** out);
 uint32_t stoint(char* string);
-int getNextLines(char** x, uint32_t* idx);
 void* findSubStrs(void* tid);
 
 /* global variables */
@@ -34,7 +33,7 @@ int main(int argc, char **argv)
   int numTasks;               /* number of tasks */
   double elapsedTime;         /* program run time */
   struct timeval t1, t2;      /* program start/end times */
-  int i;                      /* loop counter */
+  uint32_t i;                 /* loop counter */
   pthread_attr_t attr;        /* pthread attribute */
   void* status;
 
@@ -93,7 +92,7 @@ int main(int argc, char **argv)
   /* parallelized code to find substrings */
   for(i = 0; i < numThreads; i++)
   {
-    pthread_create(&threadid[i], &attr, findSubStrs, NULL);
+    pthread_create(&threadid[i], &attr, findSubStrs, (void *)i);
   }
   
   pthread_attr_destroy(&attr);
@@ -160,7 +159,7 @@ void* findSubStrs(void* tid)
   uint32_t end_pos;
   uint32_t interval;
   uint32_t i;
-  int id = *(int*)tid;
+  uint32_t id = (uint32_t)tid;
   
   interval = line_count / numThreads;
   if(line_count % numThreads)

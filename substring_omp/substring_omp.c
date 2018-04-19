@@ -46,9 +46,10 @@ int main(int argc, char **argv)
   }
   else
   {
-    numThreads = 4;
+    numThreads = 1;
   }
   
+  printf("Setting thread count to %d\n", numThreads);
   omp_set_num_threads(numThreads);
 
   /* start timer and print start message */
