@@ -73,7 +73,7 @@ int main(int argc, char **argv)
   {
     line_count = i;
   }
-  
+
   /* allocate substring storage */
   sub_strs = (char**)malloc(line_count * sizeof(char*));
   for(i = 0; i < line_count; i++)
@@ -88,9 +88,9 @@ int main(int argc, char **argv)
   }
 
   /* print and free substrings */
-  for(i = 0; i < line_count; i++)
+  for(i = 0; i < line_count-1; i++)
   {
-    printf("%u-%u: %s\n", i, i+1, sub_strs[i]);
+    printf("%u-%u: %s\n", i+1, i+2, sub_strs[i]);
     free(sub_strs[i]);
   }
   free(sub_strs);
@@ -209,7 +209,6 @@ void getSubStr(char* x, char* y, int m, int n, char** out)
   /* no common substring exists */
   if (len == 0)
   {
-    printf("\n");
     return;
   }
 
