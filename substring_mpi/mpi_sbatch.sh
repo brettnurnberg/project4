@@ -1,14 +1,14 @@
 #!/bin/bash -l
-#SBATCH --job-name=substring_pthread
+#SBATCH --job-name=substring_mpi
 
-#SBATCH --mem-per-cpu=512M   # Memory per core, use --mem= for memory per node
-#SBATCH --time=10:00   # Use the form MM:SS
+#SBATCH --mem=4G   # Memory per core, use --mem= for memory per node
+#SBATCH --time=1:00   # Use the form MM:SS
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=4
 
-#SBATCH --output=substring_pthread.out
-#SBATCH --constraint=dwarves
+#SBATCH --output=substring_mpi.out
+##SBATCH --constraint=dwarves
 
 module load OpenMPI
 
-srun -N1 -n4 /homes/brettnurnberg/project4/substring_pthread/substring_pthread /homes/dan/625/wiki_dump.txt 1000
+mpirun /homes/brettnurnberg/project4/substring_mpi/substring_mpi /homes/dan/625/wiki_dump.txt 40

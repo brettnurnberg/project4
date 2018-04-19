@@ -163,8 +163,6 @@ void findSubStrs(int id)
       end_pos = line_count;
     }
     
-    printf("Start: %d, End: %d\n", start_pos, end_pos);
-    
     for(i = start_pos; i < end_pos; i++)
     {
       getSubStr(lines[i], lines[i+1], strlen(lines[i]), strlen(lines[i+1]), &sub_strs[i]);

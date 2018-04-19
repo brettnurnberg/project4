@@ -1,5 +1,2 @@
-CC=gcc
-CFLAGS=-I.
-
 substring_omp: substring_omp.o
-	$(CC) -o substring_omp -fopenmp substring_omp.o -I.
+	gcc -o substring_omp -fopenmp substring_omp.c
