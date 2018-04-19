@@ -13,7 +13,6 @@
 /* function declarations */
 void getSubStr(char* x, char* y, int m, int n, char** out);
 uint32_t stoint(char* string);
-int getNextLines(char** x, uint32_t* idx);
 void findSubStrs(int id);
 
 /* global variables */
@@ -47,7 +46,7 @@ int main(int argc, char **argv)
   }
   else
   {
-    numThreads = 1;
+    numThreads = 4;
   }
   
   omp_set_num_threads(numThreads);
@@ -162,6 +161,8 @@ void findSubStrs(int id)
     {
       end_pos = line_count;
     }
+    
+    printf("Start: %d, End: %d\n", start_pos, end_pos);
     
     for(i = start_pos; i < end_pos; i++)
     {
