@@ -97,7 +97,7 @@ int main(int argc, char **argv)
         if(fgets(lines[i+1], LINEMAX, fp) == NULL)
         {
           chunk_count = i;
-          done = true;
+          done = 1;
           break;
         }
       }
@@ -105,9 +105,9 @@ int main(int argc, char **argv)
     }
     
     /* broadcast line data */
-    MPI_Bcast(  &chunk_count,               1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
-    MPI_Bcast(&(lines[0][0]), CHUNK * LINEMAX,     MPI_CHAR, 0, MPI_COMM_WORLD);
-    MPI_Bcast(         &done,               1,  MPI_UINT8_T, 0, MPI_COMM_WORLD);
+    MPI_Bcast(  &chunk_count,                    1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&(lines[0][0]), (CHUNK + 1)* LINEMAX,     MPI_CHAR, 0, MPI_COMM_WORLD);
+    MPI_Bcast(         &done,                    1,  MPI_UINT8_T, 0, MPI_COMM_WORLD);
     
     /* parallelized code to find substrings */
     findSubStrs(&rank);
@@ -126,7 +126,7 @@ int main(int argc, char **argv)
       line_idx += CHUNK;
       if(line_idx >= line_count)
       {
-        done = true;
+        done = 1;
       }
     }
     
