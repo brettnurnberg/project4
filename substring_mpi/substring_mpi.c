@@ -9,7 +9,7 @@
 
 /* literal constants */
 #define LINEMAX   2048
-#define STRMAX    512
+#define CHUNK     10
 
 /* function declarations */
 void getSubStr(char* x, char* y, int m, int n, char* out);
@@ -20,6 +20,7 @@ void free2d(char **array);
 
 /* global variables */
 uint32_t line_count;
+uint32_t chunk_count;
 char** lines;
 char** sub_strs;
 char** global_sub_strs;
@@ -34,6 +35,10 @@ int main(int argc, char **argv)
   uint32_t i, j;              /* loop counters */
   pthread_attr_t attr;        /* pthread attribute */
   void* status;
+  uint8_t done;               /* continue working */
+  char prev_line[LINEMAX];    /* hold previous line */
+  uint32_t line_idx;          /* current line idx */
+  FILE* fp;
   line_count = stoint(argv[2]);
   
   int rc;
@@ -53,13 +58,13 @@ int main(int argc, char **argv)
   MPI_Comm_rank(MPI_COMM_WORLD,&rank);
   
   /* allocate all lines */
-  lines = malloc2d(line_count+1, LINEMAX);
+  lines = malloc2d(CHUNK + 1, LINEMAX);
   
   /* Initialization code to run once */
   if(rank == 0)
   {
     /* get command line arguments */
-    FILE* fp = fopen(argv[1], "r");
+    fp = fopen(argv[1], "r");
     
     /* start timer and print start message */
     gettimeofday(&t1, NULL);
@@ -67,52 +72,72 @@ int main(int argc, char **argv)
            getenv("HOSTNAME"),
            getenv("SLURM_JOB_NUM_NODES"),
            getenv("SLURM_CPUS_ON_NODE"));
-
-    i = 0;
-    /* read in all lines */
-    while(fgets(lines[i], LINEMAX, fp) != NULL && i < line_count)
-    {
-      i++;
-    }
     
-    /* close file */
-    fclose(fp);
-
-    if(i < line_count)
-    {
-      line_count = i;
-    }
+    line_idx = 0;
+    chunk_count = CHUNK;
+    done = 0;
+    fgets(prev_line, LINEMAX, fp);
   }
   
-  /* broadcast line data */
-  MPI_Bcast(   &line_count,                    1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
-  MPI_Bcast(&(lines[0][0]), line_count * LINEMAX,     MPI_CHAR, 0, MPI_COMM_WORLD);
-  
   /* allocate and empty local substring storage */
-  sub_strs = malloc2d(line_count, STRMAX);
-  memset(&(sub_strs[0][0]), 0, line_count * STRMAX);
+  sub_strs = malloc2d(CHUNK, LINEMAX);
+  memset(&(sub_strs[0][0]), 0, CHUNK * LINEMAX);
   
   /* allocate global substring storage */
-  global_sub_strs = malloc2d(line_count, STRMAX); //may be able to initialize only on rank 0
+  global_sub_strs = malloc2d(CHUNK, LINEMAX);
   
-  /* parallelized code to find substrings */
-  findSubStrs(&rank);
+  while(!done)
+  {
+    /* read chunk of lines */
+    if(rank == 0)
+    {
+      memcpy(lines[0], prev_line, LINEMAX);
+      for(i = 0; i < CHUNK; i++)
+      {
+        if(fgets(lines[i+1], LINEMAX, fp) == NULL)
+        {
+          chunk_count = i;
+          done = true;
+          break;
+        }
+      }
+      memcpy(prev_line, lines[CHUNK], LINEMAX);
+    }
+    
+    /* broadcast line data */
+    MPI_Bcast(  &chunk_count,               1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
+    MPI_Bcast(&(lines[0][0]), CHUNK * LINEMAX,     MPI_CHAR, 0, MPI_COMM_WORLD);
+    MPI_Bcast(         &done,               1,  MPI_UINT8_T, 0, MPI_COMM_WORLD);
+    
+    /* parallelized code to find substrings */
+    findSubStrs(&rank);
+    
+    /* bring data together */
+    MPI_Reduce(&(sub_strs[0][0]), &(global_sub_strs[0][0]), CHUNK * LINEMAX, MPI_CHAR, MPI_SUM, 0, MPI_COMM_WORLD);
+    
+    if(rank == 0)
+    {
+      /* print substrings */
+      for(i = 0; i < chunk_count; i++)
+      {
+        printf("%u-%u: %s\n", line_idx+i+1, line_idx+i+2, global_sub_strs[i]);
+      }
+      
+      line_idx += CHUNK;
+      if(line_idx >= line_count)
+      {
+        done = true;
+      }
+    }
+    
+    MPI_Bcast(&done, 1, MPI_UINT8_T, 0, MPI_COMM_WORLD);
+  }
   
-  /* bring data together */
-  MPI_Reduce(&(sub_strs[0][0]), &(global_sub_strs[0][0]), line_count * STRMAX, MPI_CHAR, MPI_SUM, 0, MPI_COMM_WORLD);
   
-  /* free data */
-  free2d(lines);
-  free2d(sub_strs);
-  
-  /* print results */
   if(rank == 0)
   {
-    /* print and free substrings */
-    for(i = 0; i < line_count-1; i++)
-    {
-      printf("%u-%u: %s\n", i+1, i+2, global_sub_strs[i]);
-    }
+    /* close file */
+    fclose(fp);
     
     /* stop timer and calculate run time */
     gettimeofday(&t2, NULL);
@@ -126,8 +151,10 @@ int main(int argc, char **argv)
                                      elapsedTime);
   }
   
-  /* free variables */
+  /* free data */
   free2d(global_sub_strs);
+  free2d(lines);
+  free2d(sub_strs);
   
   MPI_Finalize();
   return 0;
@@ -162,8 +189,8 @@ void* findSubStrs(void* rank)
   uint32_t i;
   uint32_t id = *((uint32_t*) rank);
   
-  interval = line_count / numThreads;
-  if(line_count % numThreads)
+  interval = chunk_count / numThreads;
+  if(chunk_count % numThreads)
   {
     interval++;
   }
@@ -171,9 +198,9 @@ void* findSubStrs(void* rank)
   start_pos = id * interval;
   end_pos = (id + 1) * interval;
   
-  if(end_pos >= line_count)
+  if(end_pos > chunk_count)
   {
-    end_pos = line_count - 1;
+    end_pos = chunk_count;
   }
   
   for(i = start_pos; i < end_pos; i++)
@@ -188,6 +215,7 @@ void getSubStr(char* x, char* y, int m, int n, char* out)
 {
   uint16_t i, j;      /* loop counters */
   uint16_t len = 0;   /* length of the longest common substring */
+  uint16_t max_len;
   uint16_t row, col;  /* index of cell which contains the maximum value */
   
   /* lengths of longest common suffixes of substrings */
@@ -229,13 +257,14 @@ void getSubStr(char* x, char* y, int m, int n, char* out)
   {
     return;
   }
-  else if (len > STRMAX)
+  else if (len > LINEMAX)
   {
-    len = STRMAX;
+    len = LINEMAX;
     return; //potential bug?
   }
 
   out[len] = '\0';
+  max_len = len;
 
   /* traverse up diagonally from the (row, col) cell */
   while (com_suff[row][col] != 0)
@@ -245,6 +274,11 @@ void getSubStr(char* x, char* y, int m, int n, char* out)
     /* move diagonally up to previous cell */
     row--;
     col--;
+  }
+  
+  if(out[max_len-1] == '\n')
+  {
+    out[max_len-1] = '\0';
   }
   
   for (i = 0; i < (m + 1); i++)
