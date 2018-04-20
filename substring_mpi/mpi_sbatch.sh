@@ -3,7 +3,7 @@
 
 #SBATCH --mem=4G   # Memory per core, use --mem= for memory per node
 #SBATCH --time=1:00   # Use the form MM:SS
-#SBATCH --nodes=1
+#SBATCH --nodes=2
 #SBATCH --ntasks-per-node=4
 
 #SBATCH --output=substring_mpi.out

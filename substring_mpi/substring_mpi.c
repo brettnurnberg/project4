@@ -12,9 +12,11 @@
 #define STRMAX    512
 
 /* function declarations */
-void getSubStr(char* x, char* y, int m, int n, char** out);
+void getSubStr(char* x, char* y, int m, int n, char* out);
 uint32_t stoint(char* string);
 void* findSubStrs(void* rank);
+char** malloc2d(int n, int m);
+void free2d(char **array);
 
 /* global variables */
 uint32_t line_count;
@@ -32,36 +34,32 @@ int main(int argc, char **argv)
   uint32_t i, j;              /* loop counters */
   pthread_attr_t attr;        /* pthread attribute */
   void* status;
+  line_count = stoint(argv[2]);
   
   int rc;
   int rank;
 	MPI_Status Status;
-
+  
   /* initialize mpi */
-	rc = MPI_Init(&argc,&argv);
-	if (rc != MPI_SUCCESS)
+  rc = MPI_Init(&argc,&argv);
+  if (rc != MPI_SUCCESS)
   {
-	  printf ("Error starting MPI program. Terminating.\n");
+    printf ("Error starting MPI program. Terminating.\n");
     MPI_Abort(MPI_COMM_WORLD, rc);
   }
   
   /* set number of threads */
   MPI_Comm_size(MPI_COMM_WORLD,&numThreads);
   MPI_Comm_rank(MPI_COMM_WORLD,&rank);
-
+  
   /* allocate all lines */
-  lines = (char**)malloc(line_count * sizeof(char*));
-  for(i = 0; i < LINEMAX; i++)
-  {
-    lines[i] = (char*)malloc(LINEMAX * sizeof(char));
-  }
+  lines = malloc2d(line_count+1, LINEMAX);
   
   /* Initialization code to run once */
   if(rank == 0)
   {
     /* get command line arguments */
     FILE* fp = fopen(argv[1], "r");
-    line_count = stoint(argv[2]);
     
     /* start timer and print start message */
     gettimeofday(&t1, NULL);
@@ -70,12 +68,13 @@ int main(int argc, char **argv)
            getenv("SLURM_JOB_NUM_NODES"),
            getenv("SLURM_CPUS_ON_NODE"));
 
+    i = 0;
     /* read in all lines */
     while(fgets(lines[i], LINEMAX, fp) != NULL && i < line_count)
     {
       i++;
     }
-
+    
     /* close file */
     fclose(fp);
 
@@ -86,46 +85,25 @@ int main(int argc, char **argv)
   }
   
   /* broadcast line data */
-  MPI_Bcast(&line_count,                    1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
-  MPI_Bcast(      lines, line_count * LINEMAX,     MPI_CHAR, 0, MPI_COMM_WORLD);
-  
-  /* allocate global substring storage */
-  global_sub_strs = (char**)malloc(line_count * sizeof(char*));
-  for(i = 0; i < line_count; i++)
-  {
-    global_sub_strs[i] = (char*)malloc(sizeof(char) * STRMAX);
-  }
+  MPI_Bcast(   &line_count,                    1, MPI_UINT32_T, 0, MPI_COMM_WORLD);
+  MPI_Bcast(&(lines[0][0]), line_count * LINEMAX,     MPI_CHAR, 0, MPI_COMM_WORLD);
   
   /* allocate and empty local substring storage */
-  sub_strs = (char**)malloc(line_count * sizeof(char*));
-  for(i = 0; i < line_count; i++)
-  {
-    sub_strs[i] = (char*)malloc(sizeof(char) * STRMAX);
-    for(j = 0; j < STRMAX; j++)
-    {
-      sub_strs[i][j] = 0;
-    }
-  }
+  sub_strs = malloc2d(line_count, STRMAX);
+  memset(&(sub_strs[0][0]), 0, line_count * STRMAX);
+  
+  /* allocate global substring storage */
+  global_sub_strs = malloc2d(line_count, STRMAX); //may be able to initialize only on rank 0
   
   /* parallelized code to find substrings */
   findSubStrs(&rank);
   
   /* bring data together */
-  MPI_Reduce(sub_strs, global_sub_strs, line_count * STRMAX, MPI_CHAR, MPI_SUM, 0, MPI_COMM_WORLD);
+  MPI_Reduce(&(sub_strs[0][0]), &(global_sub_strs[0][0]), line_count * STRMAX, MPI_CHAR, MPI_SUM, 0, MPI_COMM_WORLD);
   
-  /* free lines */
-  for(i = 0; i < line_count; i++)
-  {
-    free(lines[i]);
-  }
-  free(lines);
-  
-  /* free local substrings */
-  for(i = 0; i < line_count-1; i++)
-    {
-      free(sub_strs[i]);
-    }
-    free(sub_strs);
+  /* free data */
+  free2d(lines);
+  free2d(sub_strs);
   
   /* print results */
   if(rank == 0)
@@ -134,9 +112,7 @@ int main(int argc, char **argv)
     for(i = 0; i < line_count-1; i++)
     {
       printf("%u-%u: %s\n", i+1, i+2, global_sub_strs[i]);
-      free(global_sub_strs[i]);
     }
-    free(global_sub_strs);
     
     /* stop timer and calculate run time */
     gettimeofday(&t2, NULL);
@@ -149,6 +125,9 @@ int main(int argc, char **argv)
                                      line_count,
                                      elapsedTime);
   }
+  
+  /* free variables */
+  free2d(global_sub_strs);
   
   MPI_Finalize();
   return 0;
@@ -194,18 +173,18 @@ void* findSubStrs(void* rank)
   
   if(end_pos >= line_count)
   {
-    end_pos = line_count;
+    end_pos = line_count - 1;
   }
   
   for(i = start_pos; i < end_pos; i++)
   {
-    getSubStr(lines[i], lines[i+1], strlen(lines[i]), strlen(lines[i+1]), &sub_strs[i]);
+    getSubStr(lines[i], lines[i+1], strlen(lines[i]), strlen(lines[i+1]), sub_strs[i]);
   }
   
 }
 
 /* finds and prints the longest common substring of x and y */
-void getSubStr(char* x, char* y, int m, int n, char** out)
+void getSubStr(char* x, char* y, int m, int n, char* out)
 {
   uint16_t i, j;      /* loop counters */
   uint16_t len = 0;   /* length of the longest common substring */
@@ -250,23 +229,23 @@ void getSubStr(char* x, char* y, int m, int n, char** out)
   {
     return;
   }
+  else if (len > STRMAX)
+  {
+    len = STRMAX;
+    return; //potential bug?
+  }
 
-  /* allocate space for longest common substring */
-  char* resultStr = (char*)malloc((len + 1) * sizeof(char));
-  resultStr[len] = '\0';
+  out[len] = '\0';
 
   /* traverse up diagonally from the (row, col) cell */
   while (com_suff[row][col] != 0)
   {
-    resultStr[--len] = x[row - 1];
+    out[--len] = x[row - 1];
 
     /* move diagonally up to previous cell */
     row--;
     col--;
   }
-
-  /* save longest common substring */
-  *out = resultStr;
   
   for (i = 0; i < (m + 1); i++)
   {
@@ -274,4 +253,41 @@ void getSubStr(char* x, char* y, int m, int n, char** out)
   }
   free(com_suff);
   
+}
+
+/* allocates 2d array in contiguous memory */
+char** malloc2d(int n, int m)
+{
+  /* allocate the n*m contiguous items */
+  char **array;
+  char *p = (char *)malloc(n*m*sizeof(char));
+  if (!p)
+  {
+    printf("Not enough memory!");
+    return NULL;
+  }
+
+  /* allocate the row pointers into the memory */
+  array = (char **)malloc(n*sizeof(char *));
+  if (!array)
+  {
+    free(p);
+    printf("Not enough memory!");
+    return NULL;
+  }
+
+  /* set up the pointers into the contiguous memory */
+  for (int i=0; i<n; i++) 
+  {
+    array[i] = &(p[i*m]);
+  }
+  
+  return array;
+}
+
+/* frees 2d array from memory */
+void free2d(char **array)
+{ 
+  /* free the memory */
+  free(&(array[0][0]));
 }
