@@ -1,14 +1,12 @@
 #!/bin/bash -l
-#SBATCH --job-name=substring_mpi
+#SBATCH --job-name=mpi
 
-#SBATCH --mem=512M   # Memory per core, use --mem= for memory per node
-#SBATCH --time=5:00   # Use the form MM:SS
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=4
+#SBATCH --mem=1G   # Memory per core, use --mem= for memory per node
 
-#SBATCH --output=substring_mpi.out
-##SBATCH --constraint=dwarves
+#SBATCH --constraint=dwarves
+
+COUNT=$1
 
 module load OpenMPI
 
-mpirun /homes/brettnurnberg/project4/substring_mpi/substring_mpi /homes/dan/625/wiki_dump.txt 40
+mpirun /homes/brettnurnberg/project4/substring_mpi/substring_mpi /homes/dan/625/wiki_dump.txt $COUNT

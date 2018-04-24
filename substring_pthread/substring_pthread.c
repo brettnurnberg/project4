@@ -9,7 +9,7 @@
 
 /* literal constants */
 #define LINEMAX   2048
-#define CHUNK     10
+#define CHUNK     5000
 
 /* function declarations */
 void getSubStr(char* x, char* y, int m, int n, char** out);
@@ -94,7 +94,7 @@ int main(int argc, char **argv)
     memcpy(lines[0], prev_line, LINEMAX);
     for(i = 0; i < CHUNK; i++)
     {
-      if(fgets(lines[i+1], LINEMAX, fp) == NULL)
+      if(fgets(lines[i+1], LINEMAX, fp) == NULL || line_idx + i >= line_count)
       {
         chunk_count = i;
         done = true;
@@ -154,10 +154,10 @@ int main(int argc, char **argv)
   elapsedTime += (t2.tv_usec - t1.tv_usec) / 1000.0;
   
   /* print final run data */
-  printf("DATA, %s, %s, %d, %f\n", getenv("SLURM_JOB_NUM_NODES"),
-                                   getenv("SLURM_CPUS_ON_NODE"),
-                                   line_count,
-                                   elapsedTime);
+  printf("DATA, 2, %s, %s, %d, %f\n", getenv("SLURM_JOB_NUM_NODES"),
+                                      getenv("SLURM_CPUS_ON_NODE"),
+                                      line_count,
+                                      elapsedTime);
 
   return 0;
 }
